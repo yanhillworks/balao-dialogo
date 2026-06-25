@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat Balloon Generator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
+  
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: #ece5dd; /* Typical WhatsApp chat background */
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    
+    .controls {
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 15px;
+      align-items: center;
+      width: 100%;
+      max-width: 500px;
+    }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      justify-content: center;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+    }
+
+    input[type="text"] {
+      flex-grow: 1;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      font-size: 16px;
+      min-width: 200px;
+    }
+
+    .slider-container {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      width: 100%;
+      font-size: 14px;
+      font-weight: bold;
+      color: #333;
+    }
+
+    input[type="range"] {
+      flex-grow: 1;
+      cursor: pointer;
+    }
+
+    button {
+      padding: 10px 15px;
+      border: none;
+      border-radius: 5px;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: bold;
+      transition: background 0.2s;
+    }
+
+    #btnGenerate { background-color: #25D366; color: white; }
+    #btnGenerate:hover { background-color: #1DA851; }
+
+    #btnExport { background-color: #34B7F1; color: white; }
+    #btnExport:hover { background-color: #2AA1D3; }
+
+    /* New styles for Add/Remove Buttons */
+    #btnAdd {
+      background-color: #f0f0f0;
+      color: #333;
+      border: 1px dashed #ccc;
+      width: 100%;
+      padding: 8px;
+    }
+    #btnAdd:hover { background-color: #e4e4e4; }
+
+    .btnRemove {
+      background-color: #ff4c4c;
+      color: white;
+      font-size: 18px;
+      width: 40px;
+      padding: 0;
+      flex-shrink: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+    .btnRemove:hover { background-color: #e04343; }
+
+    #canvasContainer {
+      border: 1px dashed #aaa;
+      background-color: transparent;
+      background-image: linear-gradient(45deg, #ddd 25%, transparent 25%), 
+                        linear-gradient(-45deg, #ddd 25%, transparent 25%), 
+                        linear-gradient(45deg, transparent 75%, #ddd 75%), 
+                        linear-gradient(-45deg, transparent 75%, #ddd 75%);
+      background-size: 20px 20px;
+      background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="controls">
+    <div id="inputsList" style="width: 100%; display: flex; flex-direction: column; gap: 10px;">
+      <div class="input-row">
+        <input type="text" class="chatText" placeholder="Type a message (emojis supported 😊)">
+      </div>
+    </div>
+    
+    <button id="btnAdd" type="button">+ Add another balloon (Max 4)</button>
+
+    <div class="row" style="margin-top: 5px;">
+      <button id="btnGenerate">Generate Balloons</button>
+      <button id="btnExport">Download PNG</button>
+    </div>
+    
+    <div class="slider-container">
+      <label for="widthSlider">Max Width: <span id="widthValue">300</span>px</label>
+      <input type="range" id="widthSlider" min="100" max="500" value="300">
+    </div>
+  </div>
+
+  <div id="canvasContainer"></div>
+
+  <script>
+    // --- Standard DOM Logic for Dynamic UI ---
+    document.addEventListener("DOMContentLoaded", () => {
+      const btnAdd = document.getElementById('btnAdd');
+      const inputsList = document.getElementById('inputsList');
+      const MAX_BALLOONS = 4;
+
+      btnAdd.addEventListener('click', () => {
+        const rows = inputsList.querySelectorAll('.input-row');
+        if (rows.length < MAX_BALLOONS) {
+          const div = document.createElement('div');
+          div.className = 'input-row';
+          div.innerHTML = `
+            <input type="text" class="chatText" placeholder="Type a message...">
+            <button class="btnRemove" title="Remove balloon">×</button>
+          `;
+          inputsList.appendChild(div);
+
+          // Add removal logic for the new 'x' button
+          div.querySelector('.btnRemove').addEventListener('click', () => {
+            div.remove();
+            checkAddButton();
+          });
+
+          checkAddButton();
+        }
+      });
+
+      function checkAddButton() {
+        const rows = inputsList.querySelectorAll('.input-row');
+        // Hide the add button if limit is reached
+        btnAdd.style.display = rows.length >= MAX_BALLOONS ? 'none' : 'block';
+      }
+    });
+
+
+    // --- p5.js Sketch Logic ---
+    let currentTexts = ["Hello! I'm a chat balloon. 😊\nTry adding some emojis!"];
+    let btnGenerate, btnExport, widthSlider, widthValueDisplay;
+    
+    // Variables to store the unified bounding box for exporting
+    let exportX, exportY, exportW, exportH;
+
+    function setup() {
+      let canvas = createCanvas(600, 400);
+      canvas.parent('canvasContainer');
+      
+      btnGenerate = select('#btnGenerate');
+      btnExport = select('#btnExport');
+      widthSlider = select('#widthSlider');
+      widthValueDisplay = select('#widthValue');
+      
+      btnGenerate.mousePressed(() => {
+        currentTexts = [];
+        let inputs = document.querySelectorAll('.chatText');
+        inputs.forEach(inp => {
+          if (inp.value.trim() !== "") {
+            currentTexts.push(inp.value);
+          }
+        });
+        
+        // Revert to default text if all boxes are submitted entirely empty
+        if (currentTexts.length === 0) {
+          currentTexts.push("Hello! I'm a chat balloon. 😊\nTry adding some emojis!");
+        }
+        redraw();
+      });
+
+      widthSlider.input(() => {
+        widthValueDisplay.html(widthSlider.value());
+        redraw();
+      });
+      
+      btnExport.mousePressed(() => {
+        let balloonImg = get(exportX, exportY, exportW, exportH);
+        save(balloonImg, 'chat_balloons.png');
+      });
+      
+      noLoop(); 
+      textFont('sans-serif');
+    }
+
+    function draw() {
+      textFont('sans-serif'); // Re-apply font setting in case of canvas resize
+      textSize(16);
+      
+      let maxWidth = parseInt(widthSlider.value()); 
+      let padding = 12;
+      let textLineHeight = 22;
+      let spacing = 20; // Horizontal space between multiple balloons
+      
+      let balloonsData = [];
+      let totalW = 0;
+      let maxH = 0;
+      
+      // 1. Calculate boundaries and text wrap data for ALL balloons
+      for (let txt of currentTexts) {
+        let lines = getWrappedLines(txt, maxWidth);
+        
+        let maxLineWidth = 0;
+        for(let l of lines) {
+          let w = textWidth(l);
+          if(w > maxLineWidth) maxLineWidth = w;
+        }
+        
+        let textW = max(maxLineWidth, 40);
+        let rectW = textW + padding * 2;
+        let fullW = rectW + 10; // includes the 10px tail graphic
+        let bH = (lines.length * textLineHeight) + padding + 6; 
+        
+        balloonsData.push({ lines, rectW, fullW, bH });
+        
+        totalW += fullW;
+        if (bH > maxH) maxH = bH;
+      }
+      
+      // Add visual gap spacing between each total balloon calculation
+      totalW += spacing * (balloonsData.length - 1);
+      
+      // 2. Resize canvas dynamically if the side-by-side balloons exceed standard width
+      let requiredCanvasW = max(600, totalW + 100);
+      let requiredCanvasH = max(400, maxH + 100);
+      
+      if (width !== requiredCanvasW || height !== requiredCanvasH) {
+        resizeCanvas(requiredCanvasW, requiredCanvasH);
+        // Canvas reset clears visual settings, apply them again:
+        textFont('sans-serif'); 
+        textSize(16);
+      }
+      
+      clear(); 
+      
+      // 3. Setup the bounding box calculation for exporting the *entire group*
+      exportW = totalW;
+      exportH = maxH;
+      exportX = width / 2 - totalW / 2;
+      exportY = height / 2 - maxH / 2;
+      
+      let currentX = exportX;
+      
+      // 4. Draw each balloon sequentially from left to right
+      for (let data of balloonsData) {
+        let bubbleX = currentX;
+        let bubbleY = exportY + (exportH - data.bH) / 2; // Center it vertically relative to others
+        
+        fill('#d7eb2f'); 
+        noStroke();
+        
+        rect(bubbleX, bubbleY, data.rectW, data.bH, 8, 0, 8, 8);
+        
+        let tailX = bubbleX + data.rectW;
+        let tailY = bubbleY;
+        triangle(
+          tailX, tailY, 
+          tailX + 10, tailY, 
+          tailX, tailY + 12
+        );
+        
+        fill('#000000');
+        textAlign(LEFT, TOP);
+        for(let i = 0; i < data.lines.length; i++) {
+          text(data.lines[i], bubbleX + padding, bubbleY + padding + (i * textLineHeight));
+        }
+        
+        // Push starting X position over for the next iteration
+        currentX += data.fullW + spacing;
+      }
+    }
+
+    // Helper function to wrap text manually and preserve emojis/spaces, and break long strings
+    function getWrappedLines(str, maxW) {
+      let paragraphs = str.split('\n');
+      let lines = [];
+      
+      for (let p of paragraphs) {
+        if (p === "") {
+          lines.push("");
+          continue;
+        }
+        
+        let words = p.split(' ');
+        let currentLine = "";
+        
+        for (let i = 0; i < words.length; i++) {
+          let word = words[i];
+          
+          // Check if the single word itself is too wide for the max width (e.g. a long URL)
+          if (textWidth(word) > maxW) {
+            // Push anything already on the current line to make room
+            if (currentLine !== "") {
+              lines.push(currentLine);
+              currentLine = "";
+            }
+            
+            // Break the overly long word character by character
+            let currentChunk = "";
+            for (let j = 0; j < word.length; j++) {
+              let testChunk = currentChunk + word[j];
+              if (textWidth(testChunk) > maxW && currentChunk !== "") {
+                lines.push(currentChunk);
+                currentChunk = word[j]; // start new chunk with current character
+              } else {
+                currentChunk = testChunk;
+              }
+            }
+            // The remaining chunk of the long word becomes the new currentLine
+            currentLine = currentChunk;
+            continue; 
+          }
+          
+          // Normal word wrapping logic
+          let testLine = currentLine === "" ? word : currentLine + " " + word;
+          if (textWidth(testLine) <= maxW) {
+            currentLine = testLine;
+          } else {
+            lines.push(currentLine);
+            currentLine = word;
+          }
+        }
+        
+        if (currentLine !== "") {
+          lines.push(currentLine);
+        }
+      }
+      
+      return lines;
+    }
+  </script>
+</body>
+</html>
